@@ -5,6 +5,7 @@ A user-friendly, interactive dashboard built with Streamlit for visualizing Viet
 I.Library Installation
 1. Ensure you have Python 3.8+ installed.
 2. Install the required libraries via terminal or command prompt (or use PyCharm's package installer):
+
 pip install streamlit pandas plotly requests numpy pytz
 
 II.Running the App
