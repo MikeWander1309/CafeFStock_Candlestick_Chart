@@ -1,0 +1,204 @@
+import requests
+import pandas as pd
+import datetime as dt
+import mplfinance as mpf
+
+URL = "https://cafef.vn/du-lieu/Ajax/PageNew/DataHistory/PriceHistory.ashx"
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+def find_support_resistance(df, window=10):
+
+    recent_df = df.tail(50)
+
+    highs = recent_df['High'].values
+    lows = recent_df['Low'].values
+
+    resistance_levels = []
+    support_levels = []
+
+    for i in range(window, len(highs) - window):
+        if highs[i] == max(highs[i-window:i+window]):
+            resistance_levels.append(highs[i])
+
+        if lows[i] == min(lows[i-window:i+window]):
+            support_levels.append(lows[i])
+
+    resistance_levels = sorted(set(resistance_levels), reverse=True)[:3]
+    support_levels = sorted(set(support_levels))[:3]
+
+    return support_levels, resistance_levels
+
+def analyze_buy_sell(df, supports, resistances):
+    """Phân tích đơn giản để đưa ra gợi ý mua/bán"""
+    current_price = df['Close'].iloc[-1]
+    ma20 = df['Close'].rolling(20).mean().iloc[-1]
+
+    suggestions = []
+
+    if current_price > ma20:
+        suggestions.append("📈 Giá đang trên MA20 - Xu hướng tăng")
+    else:
+        suggestions.append("📉 Giá đang dưới MA20 - Xu hướng giảm")
+
+    for support in supports:
+        if abs(current_price - support) / support < 0.02:  # Gần hỗ trợ 2%
+            suggestions.append(f"💚 Giá gần vùng hỗ trợ {support:,.0f} - Có thể MUA")
+
+    for resistance in resistances:
+        if abs(current_price - resistance) / resistance < 0.02:  # Gần kháng cự 2%
+            suggestions.append(f"🔴 Giá gần vùng kháng cự {resistance:,.0f} - Nên cân nhắc BÁN")
+
+    return suggestions
+
+def plot_stock(symbol, interval="D"):
+    today = dt.datetime.now()
+
+    params = {
+        "symbol": symbol,
+        "StartDate": "",
+        "EndDate": "",
+        "PageIndex": 1,
+        "PageSize": 1000
+    }
+    resp = requests.get(URL, params=params, headers=HEADERS)
+    res = resp.json()
+
+    if not res.get("Data") or not res["Data"].get("Data"):
+        print(f"⚠️ Không có dữ liệu cho {symbol}")
+        return
+
+    df = pd.DataFrame(res["Data"]["Data"])
+
+    df['Ngay'] = pd.to_datetime(df['Ngay'], format='%d/%m/%Y', errors='coerce')
+    df = df.dropna(subset=['Ngay'])
+
+    df = df.rename(columns={
+        'Ngay': 'Date',
+        'GiaMoCua': 'Open',
+        'GiaCaoNhat': 'High',
+        'GiaThapNhat': 'Low',
+        'GiaDongCua': 'Close',
+        'KhoiLuongKhopLenh': 'Volume'
+    })
+
+    df = df[(df['Close'] > 0) & (df['Volume'] > 0)]
+    df = df.set_index('Date').sort_index()
+
+    if interval != "D":
+        df = df.resample(interval).agg({
+            "Open": "first",
+            "High": "max",
+            "Low": "min",
+            "Close": "last",
+            "Volume": "sum"
+        }).dropna()
+
+    market_close = today.replace(hour=15, minute=0, second=0, microsecond=0)
+    if today < market_close and df.index[-1].date() == today.date():
+        df = df.iloc[:-1]
+
+    supports, resistances = find_support_resistance(df)
+
+    df['MA20'] = df['Close'].rolling(window=20).mean()
+
+    plot_df = df.tail(100).copy()
+
+    hlines = []
+    colors = []
+    linewidths = []
+
+    for support in supports:
+        hlines.append(support)
+        colors.append('green')
+        linewidths.append(1)
+
+    for resistance in resistances:
+        hlines.append(resistance)
+        colors.append('red')
+        linewidths.append(1)
+
+    ma20_plot = plot_df['MA20'].dropna()
+
+    apds = []
+    if len(ma20_plot) > 0:
+        apds = [mpf.make_addplot(ma20_plot, color='blue', width=1)]
+
+    custom_style = mpf.make_mpf_style(
+        base_mpf_style='yahoo',
+        rc={'font.size': 10}
+    )
+
+    if len(apds) > 0:
+        mpf.plot(
+            plot_df,
+            type='candle',
+            volume=True,
+            style=custom_style,
+            title=f"{symbol} - Hỗ trợ/Kháng cự",
+            ylabel="Price",
+            ylabel_lower="Volume",
+            figsize=(12, 8),
+            hlines=dict(hlines=hlines, colors=colors, linewidths=linewidths),
+            addplot=apds
+        )
+    else:
+        mpf.plot(
+            plot_df,
+            type='candle',
+            volume=True,
+            style=custom_style,
+            title=f"{symbol} - Hỗ trợ/Kháng cự",
+            ylabel="Price",
+            ylabel_lower="Volume",
+            figsize=(12, 8),
+            hlines=dict(hlines=hlines, colors=colors, linewidths=linewidths)
+        )
+
+    print("" + "="*50)
+    print(f"PHÂN TÍCH {symbol}")
+    print("="*50)
+
+    current_price = df['Close'].iloc[-1]
+    print(f"Giá hiện tại: {current_price:,.0f}")
+
+    print(f"🟢 Hỗ trợ:")
+    for i, support in enumerate(supports, 1):
+        print(f"   S{i}: {support:,.0f}")
+
+    print(f"🔴 Kháng cự:")
+    for i, resistance in enumerate(resistances, 1):
+        print(f"   R{i}: {resistance:,.0f}")
+
+    suggestions = analyze_buy_sell(df, supports, resistances)
+    print(f"💡 GỢI Ý:")
+    for suggestion in suggestions:
+        print(f"   {suggestion}")
+
+    print("" + "="*50)
+
+def ask_and_loop():
+    while True:
+        symbol = input("Nhập mã cổ phiếu (hoặc 'q' để thoát): ").upper()
+        if symbol == "Q":
+            break
+
+        print("Chọn khung thời gian: ")
+        print("1 = Daily, 2 = Weekly, 3 = Monthly")
+        choice = input("👉 Nhập lựa chọn: ")
+
+        if choice == "1":
+            interval = "D"
+        elif choice == "2":
+            interval = "W"
+        elif choice == "3":
+            interval = "ME"
+        else:
+            interval = "D"
+
+        plot_stock(symbol, interval)
+
+if __name__ == "__main__":
+    ask_and_loop()
+#%%
+
+#%%
