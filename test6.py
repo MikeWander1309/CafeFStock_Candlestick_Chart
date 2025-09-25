@@ -432,10 +432,47 @@ def main():
             else:
                 st.error("No data available.")
 
-            # Optional: Add a small table of recent data
+            # Recent Data table
             st.subheader("Recent Data")
             if not df.empty:
                 st.dataframe(df.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']])
+
+            # New: Full Data Download Section
+            st.subheader("Download Full Historical Data")
+            st.markdown("Select the metrics and indicators to include in the CSV export. This will download the full daily historical data (up to ~1000 days from API).")
+
+            # Checkboxes for columns
+            base_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']  # Always include these
+            optional_columns = {
+                'SMA20': st.checkbox("Include SMA20", value=False, key="dl_sma20"),
+                'SMA50': st.checkbox("Include SMA50", value=False, key="dl_sma50"),
+                'EMA12': st.checkbox("Include EMA12", value=False, key="dl_ema12"),
+                'EMA26': st.checkbox("Include EMA26", value=False, key="dl_ema26"),
+                'RSI': st.checkbox("Include RSI", value=False, key="dl_rsi"),
+                'MACD': st.checkbox("Include MACD", value=False, key="dl_macd"),
+                'MACD_Signal': st.checkbox("Include MACD Signal", value=False, key="dl_macd_signal"),
+                'MACD_Hist': st.checkbox("Include MACD Histogram", value=False, key="dl_macd_hist"),
+                'BB_Upper': st.checkbox("Include Bollinger Upper", value=False, key="dl_bb_upper"),
+                'BB_Lower': st.checkbox("Include Bollinger Lower", value=False, key="dl_bb_lower"),
+                'BB_Middle': st.checkbox("Include Bollinger Middle", value=False, key="dl_bb_middle")
+            }
+
+            # Prepare the dataframe for download (use original daily df)
+            export_df = df.reset_index()  # Include Date as column
+            selected_columns = base_columns + [col for col, include in optional_columns.items() if include and col in export_df.columns]
+
+            # Filter to selected columns
+            export_df = export_df[selected_columns]
+
+            # Download button
+            csv = export_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"{symbol}_full_data.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
     else:
         st.info("Enter a stock symbol in the Settings tab to load data.")
 
